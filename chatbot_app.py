@@ -1,95 +1,103 @@
 # chatbot_app.py
-from flask import Flask, request, jsonify, render_template
+
+from flask import Flask, request, render_template, jsonify  # ✅ Combine all flask imports here
 import json
 import random
-import nltk
-import numpy as np
-import pickle
-import string
 import re
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.naive_bayes import MultinomialNB
+import pickle
 from textblob import TextBlob
+from googletrans import Translator
 
-# Load data
+# Load data and model
 with open('intents.json') as file:
     intents = json.load(file)
 
-# Load trained model and vectorizer
 model = pickle.load(open('chatbot_model.pkl', 'rb'))
 vectorizer = pickle.load(open('vectorizer.pkl', 'rb'))
 
-# Flask app setup
+# Initialize app and translator
 app = Flask(__name__)
+translator = Translator()
 
-# Function: Text preprocessing
+def correct_spelling(text):
+    return str(TextBlob(text))
+
 def preprocess(text):
     text = correct_spelling(text)
     text = text.lower()
     text = re.sub(r'[^a-zA-Z0-9\s]', '', text)
     return text
 
-# Function: Spelling correction
-def correct_spelling(text):
-    return str(TextBlob(text))
-
-# Function: Predict tag from input text
 def predict_class(text):
     text = preprocess(text)
     X = vectorizer.transform([text])
-    tag = model.predict(X)[0]
-    return tag
+    return model.predict(X)[0]
 
-# Function: Fallback token-overlap-based matching
 def fallback_match(text):
     text = preprocess(text)
-    text_tokens = set(text.split())
-    best_tag = None
+    tokens = set(text.split())
     best_score = 0.0
+    best_tag = None
 
     for intent in intents['intents']:
         for pattern in intent['patterns']:
             pattern_tokens = set(preprocess(pattern).split())
-            common_tokens = text_tokens.intersection(pattern_tokens)
-            score = len(common_tokens) / max(len(pattern_tokens), 1)
+            score = len(tokens & pattern_tokens) / max(len(pattern_tokens), 1)
             if score > best_score:
                 best_score = score
                 best_tag = intent['tag']
 
-    if best_score > 0.2:
-        return best_tag
-    return None
+    return best_tag if best_score > 0.2 else None
 
-# Function: Generate bot response
 def get_response(text):
     try:
-        intent_tag = predict_class(text)
-    except:
-        intent_tag = None
-
-    if intent_tag:
+        detected_lang = translator.detect(text).lang
+        print(f"[DEBUG] Detected language: {detected_lang}")
+        translated = translator.translate(text, dest='en').text
+        print(f"[DEBUG] Translated input to English: {translated}")   
+    except Exception as e:
+        print(f"[ERROR] Translation failed: {e}")
+        detected_lang = 'en'
+        translated = text
+    try:
+        tag = predict_class(translated)
+        print(f"[DEBUG] Predicted tag: {tag}")
+    except Exception as e:
+        print(f"[ERROR] Prediction failed: {e}")
+        tag = None
+    response = None
+    if tag:
         for intent in intents['intents']:
-            if intent['tag'] == intent_tag:
-                return random.choice(intent['responses'])
-
-    fallback_tag = fallback_match(text)
-    if fallback_tag:
-        for intent in intents['intents']:
-            if intent['tag'] == fallback_tag:
-                return random.choice(intent['responses'])
-
-    return "I'm not sure I understand. Could you rephrase that?"
-
-# Routes
+            if intent['tag'] == tag:
+                response = random.choice(intent['responses'])
+                print(f"[DEBUG] Response from predicted tag: {response}")
+                break
+    if not response:
+        fallback = fallback_match(translated)
+        print(f"[DEBUG] Fallback tag: {fallback}")
+        if fallback:
+            for intent in intents['intents']:
+                if intent['tag'] == fallback:
+                    response = random.choice(intent['responses'])
+                    print(f"[DEBUG] Response from fallback: {response}")
+                    break
+    if not response:
+        response = "I'm not sure I understand. Could you rephrase that?"
+    try:
+        if detected_lang != 'en':
+            response = translator.translate(response, dest=detected_lang).text
+            print(f"[DEBUG] Translated response back to '{detected_lang}': {response}")
+    except Exception as e:
+        print(f"[ERROR] Back-translation failed: {e}")
+    return response
 @app.route("/")
 def home():
     return render_template("index.html")
 
 @app.route("/get", methods=["POST"])
 def chatbot_response():
-    user_message = request.form["msg"]
-    response = get_response(user_message)
-    return response
-
+    msg = request.form["msg"]
+    reply = get_response(msg)
+    return jsonify({"response": reply})  
 if __name__ == "__main__":
     app.run(debug=True)

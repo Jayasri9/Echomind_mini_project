@@ -1,102 +1,128 @@
+
 import json
-import random
 import pickle
-import numpy as np
-import nltk
-from nltk.stem import WordNetLemmatizer
-from nltk.tokenize import word_tokenize
-from sklearn.naive_bayes import MultinomialNB
-from sklearn.feature_extraction.text import TfidfVectorizer
-from googletrans import Translator
 import re
+import nltk
+from textblob import TextBlob
+from nltk.tokenize import word_tokenize
+from nltk.stem import WordNetLemmatizer
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.model_selection import cross_val_score
+import numpy as np
 
-# Download necessary NLTK packages
-nltk.download('punkt')
-nltk.download('wordnet')
-nltk.download('stopwords')
+# Download NLTK dependencies
+try:
+    nltk.download('punkt')
+    nltk.download('wordnet')
+    nltk.download('stopwords')
+except:
+    pass
 
-# Initialize lemmatizer and translator
 lemmatizer = WordNetLemmatizer()
-translator = Translator()
 
-def clean_text(text):
-    """Clean and preprocess text data"""
-    # Convert to lowercase
+def correct_spelling(text):
+    try:
+        return str(TextBlob(text).correct())
+    except:
+        return text
+
+def preprocess(text):
+    text = correct_spelling(text)
     text = text.lower()
-    # Remove punctuation
-    text = re.sub(r'[^\w\s]', '', text)
-    # Tokenize
-    tokens = word_tokenize(text)
-    # Lemmatize each token
-    lemmatized_tokens = [lemmatizer.lemmatize(token) for token in tokens]
-    # Join tokens back into a string
-    return ' '.join(lemmatized_tokens)
+    text = re.sub(r'[^a-zA-Z0-9\s]', '', text)
+    text = ' '.join(text.split())  # Remove extra whitespace
+    return text.strip()
 
-def translate_to_english(text, src_lang='auto'):
-    """Translate text to English if it's not in English"""
-    try:
-        # Detect language and translate if not English
-        translation = translator.translate(text, dest='en', src=src_lang)
-        return translation.text
-    except Exception as e:
-        print(f"Translation error: {e}")
-        # Return original text if translation fails
-        return text
-
-def translate_to_source_language(text, dest_lang):
-    """Translate text from English to the source language"""
-    try:
-        translation = translator.translate(text, dest=dest_lang, src='en')
-        return translation.text
-    except Exception as e:
-        print(f"Translation error: {e}")
-        # Return original text if translation fails
-        return text
-
-# Load intents
-print("Loading intents...")
-with open('intents.json') as file:
-    data = json.load(file)
+# Load your existing intents
+with open("intents.json", "r", encoding="utf-8") as file:
+    intents = json.load(file)
 
 # Prepare training data
-print("Preparing training data...")
 corpus = []
-raw_corpus = []
 labels = []
 
-for intent in data['intents']:
-    for pattern in intent['patterns']:
-        raw_corpus.append(pattern)
-        # Clean and lemmatize each pattern
-        cleaned_pattern = clean_text(pattern)
-        corpus.append(cleaned_pattern)
-        labels.append(intent['tag'])
+for intent in intents["intents"]:
+    for pattern in intent["patterns"]:
+        processed = preprocess(pattern)
+        if processed:  # Only add non-empty patterns
+            corpus.append(processed)
+            labels.append(intent["tag"])
 
-# Create a more advanced vectorizer with TF-IDF
-print("Creating vectorizer...")
-vectorizer = TfidfVectorizer(ngram_range=(1, 2), max_features=1000)
+print(f"Total training samples: {len(corpus)}")
+print(f"Unique labels: {len(set(labels))}")
+
+# Print label distribution to see if any classes are underrepresented
+from collections import Counter
+label_counts = Counter(labels)
+print("\nLabel distribution:")
+for label, count in label_counts.most_common():
+    print(f"  {label}: {count}")
+
+# Improved TF-IDF configuration - more generalized
+vectorizer = TfidfVectorizer(
+    max_features=1500,
+    ngram_range=(1, 2),  # Unigrams and bigrams
+    min_df=1,
+    max_df=0.85,
+    lowercase=True,
+    token_pattern=r'\b[a-zA-Z]{2,}\b'  # Only words with 2+ letters
+)
+
 X = vectorizer.fit_transform(corpus)
-y = labels
+print(f"Feature matrix shape: {X.shape}")
 
-# Train the model
-print("Training model...")
-model = MultinomialNB(alpha=0.1)
-model.fit(X, y)
+# Try different alpha values to find the best one
+alphas = [0.01, 0.1, 0.5, 1.0]
+best_alpha = 1.0
+best_score = 0
 
-# Evaluate model
-from sklearn.model_selection import cross_val_score
-print("Evaluating model...")
-cv_scores = cross_val_score(model, X, y, cv=5)
-print(f"Cross-validation scores: {cv_scores}")
-print(f"Average CV score: {cv_scores.mean()}")
+print("\nTesting different alpha values:")
+for alpha in alphas:
+    model_test = MultinomialNB(alpha=alpha)
+    scores = cross_val_score(model_test, X, labels, cv=3, scoring='accuracy')
+    avg_score = scores.mean()
+    print(f"Alpha {alpha}: {avg_score:.3f} (+/- {scores.std() * 2:.3f})")
+    if avg_score > best_score:
+        best_score = avg_score
+        best_alpha = alpha
+
+print(f"\nBest alpha: {best_alpha} with score: {best_score:.3f}")
+
+# Train final model with best alpha
+model = MultinomialNB(alpha=best_alpha)
+model.fit(X, labels)
 
 # Save model and vectorizer
-print("Saving model and related files...")
-pickle.dump(model, open('model.pkl', 'wb'))
-pickle.dump(vectorizer, open('vectorizer.pkl', 'wb'))
-pickle.dump(data, open('intents.pkl', 'wb'))
+with open("chatbot_model.pkl", "wb") as mf:
+    pickle.dump(model, mf)
 
-# Also save raw corpus for reference
-pickle.dump(raw_corpus, open('raw_corpus.pkl', 'wb'))
+with open("vectorizer.pkl", "wb") as vf:
+    pickle.dump(vectorizer, vf)
 
-print("Model training complete!") 
+print("✅ Model & vectorizer saved successfully!")
+
+# Test some cases to see prediction scores
+test_cases = [
+    "i have future anxiety",
+    "i'm anxious about my future", 
+    "hello",
+    "feeling stressed",
+    "thanks"
+]
+
+print("\n--- Prediction Analysis ---")
+for test in test_cases:
+    processed = preprocess(test)
+    X_test = vectorizer.transform([processed])
+    prediction = model.predict(X_test)[0]
+    probabilities = model.predict_proba(X_test)[0]
+    
+    # Get top 3 predictions with scores
+    top_indices = np.argsort(probabilities)[-3:][::-1]
+    print(f"\nInput: '{test}'")
+    for i, idx in enumerate(top_indices):
+        class_name = model.classes_[idx]
+        score = probabilities[idx]
+        marker = " ← PREDICTED" if i == 0 else ""
+        print(f"  {i+1}. {class_name}: {score:.3f}{marker}")

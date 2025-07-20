@@ -815,6 +815,54 @@
   ]
 },
 {
+  "tag": "user_tried_time_management",
+  "patterns": [
+    "Yes, I’ve tried the Pomodoro technique",
+    "I use time blocking sometimes",
+    "I’ve used to-do lists",
+    "Yes, but I have trouble sticking to them",
+    "I’ve tried setting timers"
+  ],
+  "responses": [
+    "That's great to hear. Staying consistent with these techniques can really boost productivity over time.",
+    "Good job trying out different strategies. Building a routine around them can make them more effective.",
+    "It’s awesome that you’ve experimented with time management. Keep refining what works best for you."
+  ]
+},
+{
+  "tag": "user_not_tried_time_management",
+  "patterns": [
+    "No, I haven't",
+    "Not really",
+    "I don’t know any techniques",
+    "I’ve never tried time management methods",
+    "No, I'm not sure what would work"
+  ],
+  "responses": [
+    "That’s totally okay. Everyone starts somewhere, and there are many simple techniques you can explore.",
+    "No worries. Learning time management is a skill that develops gradually with practice.",
+    "It’s never too late to begin. Even small adjustments can lead to big improvements in focus and productivity."
+  ],
+  "context_set": ""
+},
+{
+  "tag": "user_time_consuming_tasks",
+  "patterns": [
+    "Social media takes a lot of my time",
+    "I spend too much time on YouTube",
+    "I have many family responsibilities",
+    "School and part-time job",
+    "Chores and errands",
+    "I get distracted easily"
+  ],
+  "responses": [
+    "Thanks for sharing that. Being aware of these time drains is the first step toward managing them better.",
+    "It sounds like you’re juggling a lot. A structured schedule could help bring more balance to your day.",
+    "Identifying where your time goes is a valuable step. You can start reducing distractions gradually."
+  ],
+  "context_set": ""
+},
+{
   "tag": "motivation",
   "patterns": [
       "I'm feeling unmotivated to study.",
